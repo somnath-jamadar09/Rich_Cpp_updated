@@ -2,144 +2,135 @@
 
 ## Overview
 
-`rich-cpp` is a **header-only C++17 library**. Every `.hpp` in `rich/`
-corresponds 1:1 to a `.py` file in the original Rich package, mirroring
-the Python module boundaries exactly so the two codebases stay easy to
-cross-reference. There is no `.cpp`/compiled-library split (yet) — include
-what you need, `#include "rich/console.hpp"` etc., and the compiler does
-the rest. `main.cpp` is a standalone demo/smoke-test consumer of the
-library, not part of the library itself.
+`rich-cpp` is a **header-only C++17 library**. Every `.hpp` file in the [rich/](rich/) directory corresponds 1:1 to a `.py` file in the original [Textualize/rich](https://github.com/Textualize/rich) Python repository, mirroring module boundaries so the two codebases are easily cross-referenced.
 
-## Layered dependency structure
+There is no `.cpp` compiled library split — applications include required headers (such as `#include "rich/console.hpp"`), and the C++ compiler processes them inline. The [main.cpp](main.cpp) file is a standalone smoke test and demo application.
 
-Rich (and this port) is built in strict layers — each layer only depends
-on layers below it, never sideways or up. This mirrors the real Python
-package's import graph.
+---
 
+## Layered Dependency Structure
+
+`rich-cpp` is structured in strict architectural layers. Each layer depends only on components below it, preventing circular header inclusions:
+
+```mermaid
+graph TD
+    subgraph Layer 4 - Renderables
+        Rule[rich/rule.hpp]
+        Panel[rich/panel.hpp]
+        Table[rich/table.hpp]
+    end
+
+    subgraph Layer 3 - Console
+        Console[rich/console.hpp]
+    end
+
+    subgraph Layer 2 - Styling Core
+        Style[rich/style.hpp]
+        Color[rich/color.hpp]
+        ColorNames[rich/_color_names.hpp]
+    end
+
+    subgraph Layer 1 - Text Measurement
+        Cells[rich/cells.hpp]
+        UnicodeData[rich/_unicode_data.hpp]
+        UnicodeData17[rich/_unicode_data_17_0_0.hpp]
+    end
+
+    subgraph Layer 0 - Foundations
+        Errors[rich/errors.hpp]
+        ColorTriplet[rich/color_triplet.hpp]
+        Region[rich/region.hpp]
+        Loop[rich/_loop.hpp]
+        Pick[rich/_pick.hpp]
+        Stack[rich/_stack.hpp]
+        Protocol[rich/protocol.hpp]
+        ABC[rich/abc.hpp]
+    end
+
+    Rule --> Cells
+    Rule --> Style
+    Panel --> Cells
+    Panel --> Style
+    Table --> Cells
+    Table --> Style
+    Console --> Style
+    Style --> Color
+    Style --> Errors
+    Color --> ColorNames
+    Cells --> UnicodeData
+    UnicodeData --> UnicodeData17
 ```
-┌─────────────────────────────────────────────────────┐
-│ Layer 4 — Renderables (visible output)               │
-│   rule.hpp   panel.hpp   table.hpp                   │
-│   (each depends on: cells.hpp for width, style.hpp    │
-│    for color/attributes, <iostream> to write output) │
-├─────────────────────────────────────────────────────┤
-│ Layer 3 — Console (the print surface)                │
-│   console.hpp                                        │
-│   (depends on: style.hpp for ANSI rendering)          │
-├─────────────────────────────────────────────────────┤
-│ Layer 2 — Styling core                                │
-│   color.hpp  (+ _color_names.hpp — generated data)   │
-│   style.hpp  (depends on: color.hpp, errors.hpp)     │
-├─────────────────────────────────────────────────────┤
-│ Layer 1 — Text measurement                            │
-│   cells.hpp  (depends on: _unicode_data.hpp)          │
-│   _unicode_data.hpp (+ _unicode_data_17_0_0.hpp —    │
-│    generated data)                                    │
-├─────────────────────────────────────────────────────┤
-│ Layer 0 — Foundations (no internal dependencies)      │
-│   errors.hpp  color_triplet.hpp  region.hpp           │
-│   _loop.hpp  _pick.hpp  _stack.hpp                    │
-│   protocol.hpp  abc.hpp                                │
-└─────────────────────────────────────────────────────┘
-```
 
-Rule: nothing in Layer *N* includes anything from Layer *N+1* or above.
-This is enforced by convention (same as Python's import graph — Rich
-avoids circular imports the same way) rather than by a build-system
-constraint, since C++ headers don't have Python's import-cycle detection.
+### Layer Rules
+- Nothing in Layer *N* includes anything from Layer *N+1* or above.
+- Clean header separation ensures zero circular dependencies.
 
-## Data flow: how a `console.print_markup(...)` call becomes terminal output
+---
+
+## Data Flow: Processing `console.print_markup(...)`
 
 ```
 "[bold red]hi[/bold red]"
         │
         ▼
 ┌───────────────────┐
-│  console.hpp       │  Scans for [tag]...[/tag] pairs, maintains a
-│  print_markup()    │  style stack (nesting support)
-└─────────┬──────────┘
+│ rich/console.hpp  │  Scans for [tag]...[/tag] pairs, maintains a
+│ print_markup()    │  style stack for nested tags.
+└─────────┬─────────┘
           │  for each tag: Style::parse(tag_text)
           ▼
 ┌───────────────────┐
-│  style.hpp          │  Parses "bold red" → sets bold=true,
-│  Style::parse()     │  color=Color::parse("red")
-└─────────┬──────────┘
+│ rich/style.hpp    │  Parses "bold red" -> sets bold=true,
+│ Style::parse()    │  color=Color::parse("red").
+└─────────┬─────────┘
           │  color name lookup
           ▼
 ┌───────────────────┐
-│  color.hpp           │  "red" → ANSI_COLOR_NAMES lookup → Color{
-│  Color::parse()      │    type=STANDARD, number=1 }
-└─────────┬────────────┘
+│ rich/color.hpp    │  "red" -> ANSI_COLOR_NAMES lookup -> Color{
+│ Color::parse()    │    type=STANDARD, number=1 }.
+└─────────┬─────────┘
           │  style.render(text) combines attribute + color SGR codes
           ▼
 ┌───────────────────┐
-│  style.hpp            │  ansi_codes() → "1;31"  (bold=1, red fg=31)
-│  Style::render()      │  render() wraps: "\x1b[1;31m" + text + "\x1b[0m"
-└─────────┬──────────────┘
+│ rich/style.hpp    │  ansi_codes() -> "1;31" (bold=1, red fg=31)
+│ Style::render()   │  render() wraps: "\x1b[1;31m" + text + "\x1b[0m"
+└─────────┬─────────┘
           ▼
-     std::cout  →  terminal
+     std::cout  ->  Terminal Output
 ```
 
-`table.hpp`/`panel.hpp`/`rule.hpp` follow a parallel, simpler path: they
-call `cells::cell_len()` (Layer 1) directly to measure column/content
-widths in *terminal cells* (not bytes, not codepoints — see below), then
-write box-drawing Unicode characters + content directly to `std::cout`,
-optionally wrapping styled portions through `style.hpp`'s `render()`.
+Renderable components ([table.hpp](rich/table.hpp), [panel.hpp](rich/panel.hpp), [rule.hpp](rich/rule.hpp)) calculate column and padding widths using `rich::cell_len()` from [cells.hpp](rich/cells.hpp) before writing UTF-8 box-drawing characters and styled text to `std::cout`.
 
-## Why cell-width measurement is its own layer
+---
 
-Terminal output isn't measured in bytes or even Unicode codepoints — it's
-measured in **cells** (the fixed-width character slots a terminal
-allocates). A CJK character occupies 2 cells; most emoji occupy 2 cells;
-combining characters (like skin-tone modifiers) occupy 0. Every renderable
-in Layer 4 (`table.hpp` computing column widths, `panel.hpp` computing
-padding, `rule.hpp` computing dash counts) needs this measurement to be
-*exactly* right, or output misaligns. That's why `cells.hpp` sits as its
-own foundational layer beneath styling, not folded into `console.hpp` —
-matching the real Rich package's own module boundary (`cells.py` has zero
-dependency on `style.py`/`console.py` either).
+## Terminal Cell Measurement Engine
 
-## Generated vs. hand-written files
+Terminal layouts depend on **cell width** rather than raw byte count or Unicode codepoint count:
+- ASCII characters: 1 cell
+- CJK characters: 2 cells
+- Emoji graphemes: 2 cells
+- Combining characters / ZWJ sequence modifiers: 0 cells
 
-Two files are **not hand-typed** — they're mechanically generated from the
-real Python source data via a one-time extraction script (see
-WORKFLOW.md for the exact process):
+[rich/cells.hpp](rich/cells.hpp) provides cell width lookup and grapheme splitting without depending on styling modules, matching Python Rich's `cells.py` design.
 
-- `_unicode_data_17_0_0.hpp` — 464 Unicode width ranges + 213
-  narrow-to-wide character mappings, extracted from
-  `rich/_unicode_data/unicode17-0-0.py` via `ast.literal_eval`.
-- `_color_names.hpp` — 235 named-color → ANSI-number mappings, extracted
-  from `rich/color.py`'s `ANSI_COLOR_NAMES` dict the same way.
+---
 
-This separation matters architecturally: it means the *logic* files
-(`cells.hpp`, `color.hpp`) are reviewable/auditable by a human, while the
-*data* files are large, generated, and meant to be trusted the same way
-you'd trust a generated protobuf file — regenerable from source, not
-edited by hand.
+## Mechanically Generated Data Tables
 
-## String representation choice
+Two headers are generated offline from Python source data:
+- [rich/_unicode_data_17_0_0.hpp](rich/_unicode_data_17_0_0.hpp): 464 Unicode width ranges and 213 narrow-to-wide character mappings extracted from Python Rich's Unicode data.
+- [rich/_color_names.hpp](rich/_color_names.hpp): 235 named-color to ANSI number mappings extracted from Python Rich's `ANSI_COLOR_NAMES`.
 
-Two string types are used deliberately, not interchangeably:
+---
 
-- `std::string` (UTF-8 bytes) — used at API boundaries: function
-  signatures, style definitions, markup text. Matches what a C++ caller
-  naturally has on hand.
-- `std::u32string` (UTF-32, one `char32_t` per codepoint) — used
-  *internally* inside `cells.hpp` and anywhere that needs Python-string-
-  like per-codepoint indexing (grapheme splitting, cropping). Converted
-  from/to UTF-8 only at the function boundary.
+## String Representation Strategy
 
-See DECISIONS.md §6 for the reasoning.
+- `std::string` (UTF-8 bytes): Used at public API boundaries, style definitions, and console output.
+- `std::u32string` (UTF-32, `char32_t` per codepoint): Used internally in [cells.hpp](rich/cells.hpp) for per-codepoint indexing, grapheme splitting, and text cropping.
 
-## Extension points (where the next layer plugs in)
+---
 
-- **`segment.hpp`/`text.hpp`** (not yet built) would sit between Layer 1
-  and Layer 3 — a `Segment` is a `(text, style)` pair, and `Text` is a
-  sequence of segments with word-wrap/justify logic built on `cells.hpp`'s
-  measurement. `console.hpp`'s `print()` would then route through
-  `Text::wrap()` instead of writing raw strings, gaining width-aware
-  line-splitting.
-- **`box.hpp`** (not yet built) would generalize the hard-coded box-drawing
-  characters currently inlined in `table.hpp`/`panel.hpp` into swappable
-  `Box` definitions (ROUNDED, HEAVY, SQUARE, ...), matching Python's
-  `box.py`.
+## Future Extension Points
+
+1. **Segment & Text (`rich/segment.hpp`, `rich/text.hpp`)**: Will sit between Layer 1 and Layer 3 to support word-wrapping and text justification.
+2. **Box Definitions (`rich/box.hpp`)**: Will extract hard-coded box-drawing constants from `table.hpp` and `panel.hpp` into configurable `Box` styles.
