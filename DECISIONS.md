@@ -1,135 +1,91 @@
-# Porting decisions: Python → C++
+# Porting Decisions: Python → C++
 
-This document records every design decision made while porting Rich from
-Python to C++ — specifically the places where a straight line-by-line
-translation was impossible and a real engineering choice had to be made.
-Mechanical 1:1 translations (e.g. `if`/`for`/basic arithmetic) aren't
-listed; only the decisions that changed behavior, structure, or scope are.
+This document records technical design decisions made during the port of [Textualize/rich](https://github.com/Textualize/rich) from Python to C++17.
 
-## 1. Duck-typing → compile-time traits (`protocol.py`, `abc.py`)
+---
 
-**Python does:** `isinstance(obj, RichRenderable)` succeeds for *any*
-object that merely has a `__rich__` or `__rich_console__` method, checked
-at runtime via `ABCMeta.__subclasshook__` — no inheritance required.
+## 1. Duck-Typing → Compile-Time SFINAE Traits ([protocol.hpp](rich/protocol.hpp), [abc.hpp](rich/abc.hpp))
 
-**Problem:** C++ has no runtime structural type check. `isinstance()`
-requires either explicit inheritance (which would force every renderable
-type in a user's codebase to inherit from a Rich base class — un-Pythonic
-and impractical) or `dynamic_cast` (which still requires a common base).
+**Python Behavior:**
+Python Rich uses `isinstance(obj, RichRenderable)` at runtime to inspect objects for `__rich__` or `__rich_console__` methods via `ABCMeta.__subclasshook__`.
 
-**Decision:** Use the C++ "detection idiom" — SFINAE traits
-(`has_rich_method<T>`, `has_rich_console_method<T>`) resolved at compile
-time via `std::void_t`. `rich::is_rich_renderable_v<T>` replaces
-`isinstance(obj, RichRenderable)`, checked with `if constexpr` instead of
-a runtime `if`.
+**C++ Decision:**
+C++ lacks runtime duck-typing without inheritance hierarchies. `rich-cpp` uses SFINAE detection traits (`has_rich_method<T>`, `has_rich_console_method<T>`) resolved at compile time via `std::void_t`. The trait `rich::is_rich_renderable_v<T>` evaluates whether a type is renderable at compile time using `if constexpr`.
 
-**Trade-off accepted:** Type-checking moves from runtime to compile time.
-This is *stricter* than Python (a template won't compile for a type
-without the right method, vs. Python raising at call time) but loses the
-ability to check an unknown type dynamically at runtime (e.g. from a
-plugin loaded via `dlopen`). For a terminal-formatting library this
-trade-off is acceptable — nobody needs runtime plugin renderables.
+---
 
-## 2. `NamedTuple` → `struct`
+## 2. `NamedTuple` → C++ `struct` ([color_triplet.hpp](rich/color_triplet.hpp), [region.hpp](rich/region.hpp))
 
-**Python does:** `Color`, `ColorTriplet`, `Region` are `NamedTuple`
-subclasses — immutable, structurally-compared, unpackable.
+**Python Behavior:**
+`ColorTriplet` and `Region` are `NamedTuple` subclasses (immutable, unpackable containers with structural equality).
 
-**Decision:** Plain C++ `struct` with public fields. `operator==` added by
-hand where Python's structural equality was actually used (`ColorTriplet`).
-No immutability enforced (Python's `NamedTuple` immutability is
-convention-level in practice, not a hard guarantee either).
+**C++ Decision:**
+Ported as standard C++ `struct` types with public fields. `operator==` is implemented explicitly where structural comparison is required (e.g. `ColorTriplet`).
 
-## 3. Exceptions
+---
 
-**Python does:** A flat hierarchy of `Exception` subclasses in
-`errors.py`, each just a docstring + default message.
+## 3. Exceptions Hierarchy ([errors.hpp](rich/errors.hpp))
 
-**Decision:** Mirror the exact hierarchy with `std::runtime_error`
-subclasses, same names, same default messages. Kept the inheritance
-relationships identical (e.g. `StyleSyntaxError` and `MissingStyle` both
-derive from `ConsoleError`'s Python equivalent chain) so `catch` blocks
-written against a base class behave the same way in both languages.
+**Python Behavior:**
+Python Rich defines a hierarchy of custom `Exception` classes in `errors.py`.
 
-## 4. `Optional[bool]` and similar → `std::optional<T>`
+**C++ Decision:**
+Mirrored using custom exception classes deriving from `std::runtime_error` in [errors.hpp](rich/errors.hpp). The class inheritance hierarchy matches Python so `catch` blocks operate equivalently.
 
-Direct mapping, no decision needed beyond confirming `std::optional`
-(C++17) covers every case Python's `Optional` was used for in the ported
-files. This is why C++17 (not C++11/14) was the minimum target.
+---
 
-## 5. Generators → eager `std::vector`
+## 4. `Optional[T]` → `std::optional<T>` ([_pick.hpp](rich/_pick.hpp))
 
-**Python does:** `_loop.py`'s `loop_first`/`loop_last`/`loop_first_last`
-are generator functions — lazy, one item at a time.
+**Python Behavior:**
+Uses `Optional[bool]` or `Optional[T]` to denote nullable return values and default parameters.
 
-**Decision:** Return a fully-materialized `std::vector` of tuples instead
-of implementing a lazy C++ generator/coroutine. Coroutines (C++20) would
-be the closer match, but the project targets C++17 for wider compiler
-compatibility, and these helper functions are only ever used over small,
-already-in-memory containers in Rich — laziness has no real payoff here.
+**C++ Decision:**
+Mapped directly to C++17 `std::optional<T>`.
 
-## 6. Python strings (codepoint sequences) → `std::u32string`
+---
 
-**Problem:** Python `str` is a sequence of Unicode codepoints; indices,
-slicing, and length all operate per-codepoint. C++ `std::string` is a
-byte sequence (UTF-8 assumed), where indices/length are per-*byte* —
-completely different semantics for any non-ASCII text.
+## 5. Generator Functions → Eager `std::vector` ([_loop.hpp](rich/_loop.hpp))
 
-**Decision:** Any module whose logic depends on per-codepoint indexing
-(`cells.py`'s grapheme splitting, width measurement, cropping) operates on
-`std::u32string` (`char32_t` per element) internally, converting from/to
-UTF-8 `std::string` only at API boundaries (via `std::wstring_convert` +
-`std::codecvt_utf8<char32_t>`). This keeps index arithmetic identical to
-the Python original instead of requiring a UTF-8-aware reimplementation of
-every offset calculation.
+**Python Behavior:**
+`_loop.py` uses generator functions (`loop_first`, `loop_last`, `loop_first_last`) to lazily yield element position metadata.
 
-**Known caveat:** `std::wstring_convert`/`std::codecvt_utf8` are
-deprecated in C++17 (removal proposed for a future standard, no
-replacement shipped yet). Kept anyway since there's no adopted stdlib
-replacement as of C++17/20; a future revision should switch to a small
-hand-rolled UTF-8 codec or a vetted third-party one if this leaves
-header-only/zero-dependency territory.
+**C++ Decision:**
+To maintain C++17 compatibility without adding C++20 coroutine requirements, functions return materialized `std::vector<std::tuple<...>>` containers.
 
-## 7. Keyword arguments → builder-style setters (`style.hpp`)
+---
 
-**Python does:** `Style(bold=True, color="red")` — arbitrary keyword
-arguments, all optional, order-independent.
+## 6. Codepoint-Indexed Strings → `std::u32string` ([cells.hpp](rich/cells.hpp))
 
-**Decision:** C++ has no named parameters. Used chainable setters instead:
-`Style{}.set_bold().set_color("red")`. Chosen over (a) a struct-of-optionals
-passed by value (more verbose at call sites) or (b) a variadic/tag-based
-emulation of kwargs (needless complexity for the actual usage pattern,
-which is almost always `Style::parse("bold red")` from a string anyway).
+**Python Behavior:**
+Python strings index by Unicode codepoints (`str` indexing).
 
-## 8. `lru_cache` decorators — dropped, not ported
+**C++ Decision:**
+C++ `std::string` stores UTF-8 bytes where string length and indexing operate per-byte. Modules requiring codepoint-accurate indexing ([cells.hpp](rich/cells.hpp)) operate on UTF-32 (`std::u32string`) internally, converting to/from UTF-8 `std::string` at API boundaries via standard conversion utilities.
 
-**Python does:** `Color.parse`, `Style` internals, etc. are wrapped in
-`@lru_cache` for performance, since these are called very frequently with
-repeated arguments (e.g. the same style string parsed thousands of times
-during a render).
+---
 
-**Decision:** Not ported in this pass. C++ `Color::parse`/`Style::parse`
-recompute every call. This is a correctness-neutral, performance-only gap
-— acceptable for the current scope (a demo/hackathon-stage port), but
-flagged here because a production port would want an
-`unordered_map<string, Style>`-based memoization layer before this is used
-in a hot rendering loop.
+## 7. Keyword Arguments → Builder Pattern ([style.hpp](rich/style.hpp))
 
-## 9. Scope cuts: what was *not* ported, and why
+**Python Behavior:**
+`Style(bold=True, color="red")` uses arbitrary keyword arguments.
 
-- **`Color::downgrade()`** — converts truecolor → 8-bit → 16-color for
-  terminals that don't support 16.7M colors. Needs `_palettes.py`'s
-  `EIGHT_BIT_PALETTE`/`STANDARD_PALETTE`/`WINDOWS_PALETTE` (large
-  generated tables) — not yet extracted. Every ported `Style`/`Color`
-  currently emits full truecolor/8-bit codes unconditionally; fine on any
-  modern terminal, wrong on a legacy 16-color one.
-- **`Console`'s width-aware wrapping/justify** — needs `Text`/`Segment`
-  (not yet ported) for grapheme-aware line-splitting. Current
-  `console.hpp` prints unwrapped.
-- **Table/Panel styling, multi-line content, custom box styles** — the
-  ported subset hard-codes Rich's *default* box style and single-line
-  content, matching the common case exactly (verified byte-for-byte) but
-  not the full parameter surface of the Python classes.
+**C++ Decision:**
+`Style` uses chainable method setters (`Style{}.set_bold().set_color("red")`) and string parsing (`Style::parse("bold red")`).
 
-Each of these is a deliberate scope cut for this pass, not an oversight —
-tracked in [WORKFLOW.md](WORKFLOW.md)'s roadmap.
+---
+
+## 8. Performance Caching (`@lru_cache`)
+
+**Python Behavior:**
+Python Rich uses `@lru_cache` on frequent style parsing calls.
+
+**C++ Decision:**
+Caching is currently omitted in the core port. `Style::parse()` and `Color::parse()` evaluate string inputs on each call.
+
+---
+
+## 9. Explicit Scope Cuts
+
+- **`Color::downgrade()`**: Truecolor to 8-bit / 4-bit color degradation is deferred until palette tables are extracted.
+- **Console Line Wrapping**: Width-aware line wrapping is deferred until `Text` and `Segment` components are implemented.
+- **Custom Box Styles**: Tables and panels currently use default box-drawing character sets (heavy head for tables, rounded corners for panels).
