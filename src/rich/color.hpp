@@ -8,7 +8,12 @@
 #include "color_triplet.hpp"
 #include "_color_names.hpp"
 #include <string>
+#if __has_include(<optional>)
 #include <optional>
+#elif __has_include(<experimental/optional>)
+#include <experimental/optional>
+namespace std { using experimental::optional; using experimental::nullopt; }
+#endif
 #include <vector>
 #include <stdexcept>
 #include <regex>

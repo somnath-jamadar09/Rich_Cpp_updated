@@ -5,9 +5,9 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 add_library(rich_cpp INTERFACE)
-target_include_directories(rich_cpp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(rich_cpp INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
-add_executable(rich_demo main.cpp)
+add_executable(rich_demo src/main.cpp)
 target_link_libraries(rich_demo PRIVATE rich_cpp)
 target_compile_features(rich_demo PRIVATE cxx_std_17)
 
@@ -33,7 +33,8 @@ set(TEST_FILES
 )
 
 foreach(test_name ${TEST_FILES})
-    add_executable(${test_name} tests/${test_name}.cpp)
+    add_executable(${test_name} tests/port/${test_name}.cpp)
     target_link_libraries(${test_name} PRIVATE rich_cpp)
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
+
