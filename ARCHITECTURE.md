@@ -2,9 +2,9 @@
 
 ## Overview
 
-`rich-cpp` is a **header-only C++17 library**. Every `.hpp` file in the [rich/](rich/) directory corresponds 1:1 to a `.py` file in the original [Textualize/rich](https://github.com/Textualize/rich) Python repository, mirroring module boundaries so the two codebases are easily cross-referenced.
+`Rich-C++` is a **header-only C++17 library**. Every `.hpp` file in the [src/rich/](src/rich/) directory corresponds 1:1 to a `.py` file in the original [Textualize/rich](https://github.com/Textualize/rich) Python repository, mirroring module boundaries so the two codebases are easily cross-referenced.
 
-There is no `.cpp` compiled library split — applications include required headers (such as `#include "rich/console.hpp"`), and the C++ compiler processes them inline. The [main.cpp](main.cpp) file is a standalone smoke test and demo application.
+There is no `.cpp` compiled library split — applications include required headers (such as `#include "rich/console.hpp"`), and the C++ compiler processes them inline. The [src/main.cpp](src/main.cpp) file is a standalone smoke test and demo application.
 
 ---
 
@@ -15,36 +15,36 @@ There is no `.cpp` compiled library split — applications include required head
 ```mermaid
 graph TD
     subgraph Layer 4 - Renderables
-        Rule[rich/rule.hpp]
-        Panel[rich/panel.hpp]
-        Table[rich/table.hpp]
+        Rule["rich/rule.hpp"]
+        Panel["rich/panel.hpp"]
+        Table["rich/table.hpp"]
     end
 
     subgraph Layer 3 - Console
-        Console[rich/console.hpp]
+        Console["rich/console.hpp"]
     end
 
     subgraph Layer 2 - Styling Core
-        Style[rich/style.hpp]
-        Color[rich/color.hpp]
-        ColorNames[rich/_color_names.hpp]
+        Style["rich/style.hpp"]
+        Color["rich/color.hpp"]
+        ColorNames["rich/_color_names.hpp"]
     end
 
     subgraph Layer 1 - Text Measurement
-        Cells[rich/cells.hpp]
-        UnicodeData[rich/_unicode_data.hpp]
-        UnicodeData17[rich/_unicode_data_17_0_0.hpp]
+        Cells["rich/cells.hpp"]
+        UnicodeData["rich/_unicode_data.hpp"]
+        UnicodeData17["rich/_unicode_data_17_0_0.hpp"]
     end
 
     subgraph Layer 0 - Foundations
-        Errors[rich/errors.hpp]
-        ColorTriplet[rich/color_triplet.hpp]
-        Region[rich/region.hpp]
-        Loop[rich/_loop.hpp]
-        Pick[rich/_pick.hpp]
-        Stack[rich/_stack.hpp]
-        Protocol[rich/protocol.hpp]
-        ABC[rich/abc.hpp]
+        Errors["rich/errors.hpp"]
+        ColorTriplet["rich/color_triplet.hpp"]
+        Region["rich/region.hpp"]
+        Loop["rich/_loop.hpp"]
+        Pick["rich/_pick.hpp"]
+        Stack["rich/_stack.hpp"]
+        Protocol["rich/protocol.hpp"]
+        ABC["rich/abc.hpp"]
     end
 
     Rule --> Cells
@@ -62,6 +62,7 @@ graph TD
 ```
 
 ### Layer Rules
+
 - Nothing in Layer *N* includes anything from Layer *N+1* or above.
 - Clean header separation ensures zero circular dependencies.
 
@@ -69,7 +70,7 @@ graph TD
 
 ## Data Flow: Processing `console.print_markup(...)`
 
-```
+```text
 "[bold red]hi[/bold red]"
         │
         ▼
@@ -99,38 +100,40 @@ graph TD
      std::cout  ->  Terminal Output
 ```
 
-Renderable components ([table.hpp](rich/table.hpp), [panel.hpp](rich/panel.hpp), [rule.hpp](rich/rule.hpp)) calculate column and padding widths using `rich::cell_len()` from [cells.hpp](rich/cells.hpp) before writing UTF-8 box-drawing characters and styled text to `std::cout`.
+Renderable components ([src/rich/table.hpp](src/rich/table.hpp), [src/rich/panel.hpp](src/rich/panel.hpp), [src/rich/rule.hpp](src/rich/rule.hpp)) calculate column and padding widths using `rich::cell_len()` from [src/rich/cells.hpp](src/rich/cells.hpp) before writing UTF-8 box-drawing characters and styled text to `std::cout`.
 
 ---
 
 ## Terminal Cell Measurement Engine
 
 Terminal layouts depend on **cell width** rather than raw byte count or Unicode codepoint count:
+
 - ASCII characters: 1 cell
 - CJK characters: 2 cells
 - Emoji graphemes: 2 cells
 - Combining characters / ZWJ sequence modifiers: 0 cells
 
-[rich/cells.hpp](rich/cells.hpp) provides cell width lookup and grapheme splitting without depending on styling modules, matching Python Rich's `cells.py` design.
+[src/rich/cells.hpp](src/rich/cells.hpp) provides cell width lookup and grapheme splitting without depending on styling modules, matching Python Rich's `cells.py` design.
 
 ---
 
 ## Mechanically Generated Data Tables
 
 Two headers are generated offline from Python source data:
-- [rich/_unicode_data_17_0_0.hpp](rich/_unicode_data_17_0_0.hpp): 464 Unicode width ranges and 213 narrow-to-wide character mappings extracted from Python Rich's Unicode data.
-- [rich/_color_names.hpp](rich/_color_names.hpp): 235 named-color to ANSI number mappings extracted from Python Rich's `ANSI_COLOR_NAMES`.
+
+- [src/rich/_unicode_data_17_0_0.hpp](src/rich/_unicode_data_17_0_0.hpp): 464 Unicode width ranges and 213 narrow-to-wide character mappings extracted from Python Rich's Unicode data.
+- [src/rich/_color_names.hpp](src/rich/_color_names.hpp): 235 named-color to ANSI number mappings extracted from Python Rich's `ANSI_COLOR_NAMES`.
 
 ---
 
 ## String Representation Strategy
 
 - `std::string` (UTF-8 bytes): Used at public API boundaries, style definitions, and console output.
-- `std::u32string` (UTF-32, `char32_t` per codepoint): Used internally in [cells.hpp](rich/cells.hpp) for per-codepoint indexing, grapheme splitting, and text cropping.
+- `std::u32string` (UTF-32, `char32_t` per codepoint): Used internally in [src/rich/cells.hpp](src/rich/cells.hpp) for per-codepoint indexing, grapheme splitting, and text cropping.
 
 ---
 
 ## Future Extension Points
 
-1. **Segment & Text (`rich/segment.hpp`, `rich/text.hpp`)**: Will sit between Layer 1 and Layer 3 to support word-wrapping and text justification.
-2. **Box Definitions (`rich/box.hpp`)**: Will extract hard-coded box-drawing constants from `table.hpp` and `panel.hpp` into configurable `Box` styles.
+1. **Segment & Text (`src/rich/segment.hpp`, `src/rich/text.hpp`)**: Will sit between Layer 1 and Layer 3 to support word-wrapping and text justification.
+2. **Box Definitions (`src/rich/box.hpp`)**: Will extract hard-coded box-drawing constants from `table.hpp` and `panel.hpp` into configurable `Box` styles.

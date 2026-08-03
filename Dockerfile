@@ -1,4 +1,3 @@
-# Multi-stage Dockerfile for rich-cpp (Port Mortem 2026 Submission)
 # Stage 1: Build binary using GCC C++17 compiler
 FROM gcc:12 AS builder
 WORKDIR /app

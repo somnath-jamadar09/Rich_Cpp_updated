@@ -1,6 +1,6 @@
 {
   "p99_latency_ms": {
-    "original": 2.337,
+    "original": 1.31,
     "port": 0.045
   },
   "rss_mb": {
@@ -8,11 +8,11 @@
     "port": 2.4
   },
   "startup_ms": {
-    "original": 84.53,
+    "original": 48.23,
     "port": 1.2
   },
   "throughput_rps": {
-    "original": 964.8,
+    "original": 1689.7,
     "port": 22200.0
   }
 }
