@@ -4,7 +4,6 @@ A high-performance, header-only C++17 port of [Textualize/rich](https://github.c
 
 [![C++ Standard](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/compiler_support/17)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Submission Track](https://img.shields.io/badge/Port_Mortem_2026-Track_H-purple.svg)](.port-mortem.toml)
 
 ---
 
